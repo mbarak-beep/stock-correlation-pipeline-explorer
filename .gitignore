@@ -1,0 +1,11 @@
+.venv/
+__pycache__/
+.pytest_cache/
+correlation_output/
+full_validation_output/
+storage_benchmark/
+verification_output/
+*.npz
+*.pyc
+stock-correlation-explorer-submission.zip
+inspect_data.py
