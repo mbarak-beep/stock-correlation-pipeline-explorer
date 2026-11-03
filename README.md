@@ -1,110 +1,196 @@
 ﻿# Stock Correlation Pipeline & Explorer
 
-Practice implementation for the stock-correlation take-home.
+A Python application for calculating and exploring rolling correlations between stock returns.
 
-## What it does
+The project takes daily stock price data, calculates daily returns, and generates trailing 20-trading-day Pearson correlation matrices. A Streamlit application provides an interactive way to explore the results.
 
-1. Reads daily stock-price CSVs from a directory or ZIP archive.
-2. Builds a date Ã— ticker price matrix.
-3. Computes daily returns.
-4. Computes trailing 20-trading-day Pearson correlations between stock returns.
-5. Stores only the upper triangle of each symmetric correlation matrix as compressed `float32` NumPy arrays.
-6. Provides a Streamlit + Plotly UI.
+## Features
 
-## Input
+- Load daily stock price data from CSV files in a directory or ZIP archive.
+- Build a date-by-ticker price matrix.
+- Calculate daily percentage returns.
+- Calculate rolling 20-trading-day Pearson correlations.
+- Use vectorised NumPy operations for correlation calculations.
+- Store correlation matrices efficiently using compressed NumPy arrays.
+- Explore correlations through an interactive Streamlit application.
+- Identify the strongest positive and negative correlations for a selected stock.
 
-The assignment screenshot suggests files like:
+## Project Structure
 
 ```text
-stock_data/
-â”œâ”€â”€ 20200101.csv
-â”œâ”€â”€ 20200102.csv
-â””â”€â”€ ...
+stock-correlation-pipeline-explorer/
+|
+|-- app/
+|   \-- streamlit_app.py
+|
+|-- sample_data/
+|   \-- stock_data/
+|
+|-- src/
+|   |-- loader.py
+|   |-- returns.py
+|   |-- correlation.py
+|   |-- storage.py
+|   \-- pipeline.py
+|
+|-- tests/
+|   |-- test_loader.py
+|   |-- test_returns.py
+|   |-- test_correlation.py
+|   \-- test_storage.py
+|
+|-- requirements.txt
+|-- pytest.ini
+|-- README.md
+\-- AI_USAGE.md
 ```
 
-Each CSV should contain a ticker/security identifier and a closing price.
+## Input Data
 
-The loader accepts common names such as `ticker`/`symbol` and `close`/`price`/`adjusted_close`. The date is inferred from an 8-digit `YYYYMMDD` value in the filename.
+The pipeline accepts either a directory containing daily CSV files or a ZIP archive containing the same files.
 
-If your real files use different names, edit the aliases in `src/loader.py`.
+Each CSV is expected to contain the following columns:
 
-## Correlation definition
+| Column | Description |
+|---|---|
+| Ticker | Stock or instrument identifier |
+| Date | Trading date |
+| Price | Closing price |
 
-For date `t`, the correlation between stock A and stock B is the Pearson correlation of their daily returns over the previous 20 trading observations ending at `t`.
+Example:
 
-This is the rolling-window interpretation of "trailing 20-day return correlations".
+```text
+Ticker,Date,Price
+AAPL,2020-01-01,75.09
+MSFT,2020-01-01,160.62
+GOOG,2020-01-01,71.71
+```
 
-## Quick start
+The supplied sample data is included in `sample_data/stock_data/`.
 
-Windows PowerShell:
+## Correlation Methodology
+
+Daily simple returns are calculated from consecutive closing prices using percentage changes.
+
+For each eligible date, the pipeline calculates Pearson correlations using the previous 20 trading-day return observations.
+
+A 20-observation return window requires 21 price observations.
+
+The correlation calculation uses NumPy matrix operations rather than iterating through every stock pair individually. This makes the calculation more efficient when working with thousands of instruments.
+
+## Missing Data
+
+Rows without a ticker are excluded because they cannot be associated with an instrument.
+
+Missing prices are preserved as missing values rather than being filled with estimated prices.
+
+For a given rolling window, an instrument must have a complete set of return observations to participate in the correlation calculation. Incomplete or constant return series produce undefined correlations where appropriate.
+
+This avoids introducing artificial values into the results.
+
+## Storage
+
+Correlation matrices are symmetric, meaning the upper and lower triangles contain the same information.
+
+To avoid storing duplicate values, the pipeline stores only the strict upper triangle of each matrix.
+
+The correlation values are stored as compressed `float32` NumPy arrays, with ticker metadata stored separately in Parquet format.
+
+The matrix can be reconstructed when needed by the application.
+
+## Getting Started
+
+### Requirements
+
+- Python 3.10 or later
+- pip
+
+### Installation
+
+Clone the repository:
+
+```bash
+git clone https://github.com/mbarak-beep/stock-correlation-pipeline-explorer.git
+cd stock-correlation-pipeline-explorer
+```
+
+Create a virtual environment:
+
+**Windows PowerShell:**
 
 ```powershell
 python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-pip install -r requirements.txt
-pytest -q
-python -m src.pipeline --input sample_data/stock_data --output output
+.venv\Scripts\Activate.ps1
+```
+
+**macOS / Linux:**
+
+```bash
+python -m venv .venv
+source .venv/bin/activate
+```
+
+Install the required packages:
+
+```bash
+python -m pip install -r requirements.txt
+```
+
+## Running the Pipeline
+
+To run the pipeline against the included sample data:
+
+```bash
+python -m src.pipeline --input sample_data/stock_data --output correlation_output
+```
+
+To run it against the full dataset supplied as a ZIP archive:
+
+```bash
+python -m src.pipeline --input path/to/stock_data.zip --output correlation_output
+```
+
+The pipeline loads the data, calculates daily returns, generates the rolling correlation matrices and saves the results to the specified output directory.
+
+## Launching the Explorer
+
+Once the pipeline has generated the correlation files, start the Streamlit application:
+
+```bash
 streamlit run app/streamlit_app.py
 ```
 
-Against the assignment ZIP:
-
-```powershell
-python -m src.pipeline --input C:\path\to\stock_data.zip --output output
-```
-
-## Storage choice
-
-A 5,000 Ã— 5,000 correlation matrix has 25 million values per date. It is symmetric, so only the strict upper triangle is stored:
-
-`5,000 Ã— 4,999 / 2 = 12,497,500` values.
-
-The values are `float32`. This avoids repeating ticker strings millions of times in a long-form table and makes the dense matrix representation compact.
-
-Ticker metadata is stored separately in `tickers.parquet`.
-
-## Performance
-
-For complete windows, the correlation matrix is calculated with vectorized NumPy matrix multiplication after column standardization:
-
-`Z.T @ Z / (n - 1)`
-
-This avoids a Python loop over every stock pair.
-
-### Missing Data
-
-The supplied dataset contains one row with a missing ticker in each daily CSV. These rows are excluded during ingestion because they cannot be associated with a valid instrument.
-
-Missing prices are preserved as missing values; they are not imputed. When calculating a rolling correlation matrix, an instrument must have a complete return window to participate. Instruments with missing returns in the window receive undefined (`NaN`) correlations for that date.
-
-This approach avoids introducing artificial prices or returns into the correlation calculations.
-
-## GUI
-
-The Streamlit app provides:
-
-- date selection;
-- stock selection;
-- top positive correlations;
-- top negative correlations;
-- interactive heatmap.
-
-Only the selected date's correlation file is loaded.
-
-## Project structure
+Open the local URL printed in the terminal. By default, this is:
 
 ```text
-stock-correlation-explorer/
-â”œâ”€â”€ src/
-â”œâ”€â”€ app/
-â”œâ”€â”€ tests/
-â”œâ”€â”€ sample_data/
-â”œâ”€â”€ requirements.txt
-â”œâ”€â”€ README.md
-â”œâ”€â”€ AI_USAGE.md
-â””â”€â”€ AGENTS.md
+http://localhost:8501
 ```
 
-For an actual assessment, update `AI_USAGE.md` to accurately describe how AI was used.
+The application allows you to:
 
+- Select a trading date.
+- Choose an individual stock.
+- View its strongest positive correlations.
+- View its strongest negative correlations.
+- Explore relationships through an interactive correlation heatmap.
 
+Only the selected date's correlation data is loaded by the explorer.
+
+## Running the Tests
+
+Run the automated test suite from the project root:
+
+```bash
+pytest -q
+```
+
+The tests cover:
+
+- CSV data loading and validation.
+- Daily return calculations.
+- Rolling correlation calculations.
+- Correlation matrix storage and reconstruction.
+
+## Dependencies
+
+The project dependencies and required Python packages are listed in `requirements.txt`.
